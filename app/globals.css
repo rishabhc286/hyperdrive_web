@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* Fonts are injected as CSS variables by next/font in app/layout.tsx */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+ * Minimal palette: near-monochrome ink on obsidian, hairline borders, and a
+ * single accent reserved for live activity (streaming, fetching, focus).
+ */
+@theme {
+  --color-obsidian: #07090e;
+  --color-panel: #0d111a;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-line-strong: rgb(255 255 255 / 0.16);
+  --color-ink: #ededf0;
+  --color-ink-muted: #969ba6;
+  --color-ink-subtle: #5f6571;
+  --color-accent: #22c3dd;
+}
+
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
+  background-color: var(--color-obsidian);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-obsidian);
+  color: var(--color-ink);
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  background: rgb(255 255 255 / 0.18);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Scroll rail layout (components/landing/ScrollRail.tsx). Plain CSS on purpose:
+ * visibility of the rail must never depend on utility-class scanning.
+ *  .scroll-rail  – the fixed overlay itself
+ *  .rail-gutter  – page wrapper; reserves room on the right for the rail
+ *  .rail-bleed   – navbar; extends its background across that gutter
+ * Widths must match the TIER sizes in ScrollRail.tsx.
+ */
+.scroll-rail {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .scroll-rail {
+    display: block;
+  }
+  .rail-gutter {
+    padding-right: 15rem;
+  }
+  .rail-bleed {
+    margin-right: -15rem;
+    padding-right: 15rem;
+  }
+}
+@media (min-width: 1280px) {
+  .rail-gutter {
+    padding-right: 20rem;
+  }
+  .rail-bleed {
+    margin-right: -20rem;
+    padding-right: 20rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
