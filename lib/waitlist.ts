@@ -11,9 +11,6 @@ export const CLOUD_PROVIDERS = [
 
 export type CloudProviderId = (typeof CLOUD_PROVIDERS)[number]["id"];
 
-/** Seed count shown before any real signups (existing early-access list). */
-export const WAITLIST_BASE_COUNT = 1420;
-
 export const MAX_EMAIL_LENGTH = 254;
 
 export interface WaitlistRequest {

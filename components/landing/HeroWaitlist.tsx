@@ -3,18 +3,25 @@
 import { useEffect, useState } from "react";
 import { WRAP } from "@/components/landing/Section";
 import { WaitlistForm } from "@/components/landing/WaitlistForm";
-import {
-  WAITLIST_BASE_COUNT,
-  WAITLIST_EMAIL_INPUT_ID,
-  WAITLIST_SECTION_ID,
-  type WaitlistStats,
-} from "@/lib/waitlist";
+import { WAITLIST_EMAIL_INPUT_ID, WAITLIST_SECTION_ID, type WaitlistStats } from "@/lib/waitlist";
 
 const COUNT_POLL_MS = 20_000;
 const numberFormat = new Intl.NumberFormat("en-US");
 
+/** Live signup count, worded for 0 / 1 / many. */
+function WaitlistCount({ total }: { total: number }) {
+  if (total === 0) return <>Be the first to join the waitlist.</>;
+  return (
+    <>
+      <span className="text-ink-muted tabular-nums">{numberFormat.format(total)}</span>{" "}
+      {total === 1 ? "person is" : "developers and power users are"} on the waitlist
+    </>
+  );
+}
+
 export function HeroWaitlist() {
-  const [total, setTotal] = useState(WAITLIST_BASE_COUNT);
+  // null until the real count has loaded, so no placeholder number ever flashes.
+  const [total, setTotal] = useState<number | null>(null);
 
   // Live counter: fetch on mount, then poll while the tab is visible.
   useEffect(() => {
@@ -26,7 +33,7 @@ export function HeroWaitlist() {
         const res = await fetch("/api/waitlist", { cache: "no-store", signal: controller.signal });
         if (!res.ok) return;
         const data = (await res.json()) as WaitlistStats;
-        setTotal((prev) => Math.max(prev, data.total));
+        setTotal(data.total);
       } catch {
         // Network hiccups shouldn't disturb the hero; keep the last known count.
       }
@@ -62,9 +69,9 @@ export function HeroWaitlist() {
 
         <div className="mt-12 max-w-xl">
           <WaitlistForm inputId={WAITLIST_EMAIL_INPUT_ID} anchorId={WAITLIST_SECTION_ID} onTotalChange={setTotal} />
-          <p className="mt-6 text-sm text-ink-subtle">
-            <span className="text-ink-muted tabular-nums">{numberFormat.format(total)}+</span> developers and power users
-            on the waitlist
+          {/* Fixed line height so the text appearing after load doesn't shift the layout. */}
+          <p className="mt-6 min-h-5 text-sm text-ink-subtle" aria-live="polite">
+            {total !== null && <WaitlistCount total={total} />}
           </p>
         </div>
       </div>

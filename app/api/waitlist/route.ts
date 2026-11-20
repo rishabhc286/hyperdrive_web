@@ -1,5 +1,5 @@
 import { after, connection } from "next/server";
-import { addToWaitlist, getWaitlistTotal } from "@/lib/waitlist-store";
+import { addToWaitlist, getWaitlistTotal, type StoredEntry } from "@/lib/waitlist-store";
 import { sendWaitlistEmails } from "@/lib/mailer";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/lib/waitlist";
 
 const MAX_BODY_BYTES = 4 * 1024;
+const UNAVAILABLE = "The waitlist is temporarily unavailable. Please try again in a moment.";
 /** Signups allowed per IP per window — each one can trigger an email from your account. */
 const SIGNUP_LIMIT = 5;
 const SIGNUP_WINDOW_MS = 10 * 60 * 1000;
@@ -44,8 +45,13 @@ async function readBodyWithLimit(request: Request, limit: number): Promise<strin
 export async function GET() {
   // Opt out of prerendering (Cache Components): the count changes at runtime.
   await connection();
-  const body: WaitlistStats = { total: getWaitlistTotal() };
-  return Response.json(body, { headers: NO_STORE });
+  try {
+    const body: WaitlistStats = { total: await getWaitlistTotal() };
+    return Response.json(body, { headers: NO_STORE });
+  } catch (err) {
+    console.error("[waitlist] Failed to read total:", err instanceof Error ? err.message : err);
+    return fail(503, UNAVAILABLE);
+  }
 }
 
 /** POST /api/waitlist — join the early-access queue. */
@@ -86,7 +92,7 @@ export async function POST(request: Request) {
       ? (payload as Record<string, unknown>).website
       : undefined;
   if (typeof website === "string" && website.trim() !== "") {
-    const total = getWaitlistTotal();
+    const total = 0; // never touch the database for bots
     const body: WaitlistResponse = {
       ok: true,
       email: "",
@@ -103,7 +109,15 @@ export async function POST(request: Request) {
     return fail(422, "Please fix the highlighted fields.", result.fieldErrors);
   }
 
-  const entry = addToWaitlist(result.data);
+  let entry: StoredEntry;
+  let total: number;
+  try {
+    entry = await addToWaitlist(result.data);
+    total = await getWaitlistTotal();
+  } catch (err) {
+    console.error("[waitlist] Failed to save signup:", err instanceof Error ? err.message : err);
+    return fail(503, UNAVAILABLE);
+  }
 
   // Email only genuinely new signups, after the response is sent so SMTP latency
   // never slows the form down.
@@ -118,7 +132,7 @@ export async function POST(request: Request) {
     email: entry.email,
     providers: entry.providers,
     position: entry.position,
-    total: getWaitlistTotal(),
+    total,
     alreadyJoined: entry.alreadyJoined,
   };
   return Response.json(body, { status: entry.alreadyJoined ? 200 : 201, headers: NO_STORE });

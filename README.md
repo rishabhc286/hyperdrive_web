@@ -16,6 +16,7 @@ This is the landing page and early-access waitlist for **HyperDrive**, a Windows
 - [Tech stack](#tech-stack)
 - [Getting started](#getting-started)
 - [Environment variables](#environment-variables)
+- [Database (PostgreSQL)](#database-postgresql)
 - [Waitlist emails (Gmail)](#waitlist-emails-gmail)
 - [Waitlist API](#waitlist-api)
 - [Project structure](#project-structure)
@@ -47,6 +48,7 @@ This is the landing page and early-access waitlist for **HyperDrive**, a Windows
 - **[Tailwind CSS v4](https://tailwindcss.com)** — design tokens live in `app/globals.css` (`@theme`), no `tailwind.config`
 - **[lucide-react](https://lucide.dev)** icons
 - **Inter** + **JetBrains Mono** via `next/font`
+- **PostgreSQL** via [`pg`](https://node-postgres.com) for waitlist storage
 - **[Nodemailer](https://nodemailer.com)** for waitlist emails over SMTP
 - Generated OpenGraph image (`next/og`), SVG favicon, full SEO metadata
 
@@ -79,12 +81,32 @@ Copy `.env.example` to `.env.local` and fill in what you need. `.env*` files are
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | In production | Public URL used for canonical and OpenGraph links. Defaults to `http://localhost:3000`. |
 | `NEXT_PUBLIC_GITHUB_URL` | No | Shows a "Star on GitHub" link in the footer when set. |
+| `DATABASE_URL` | In production | PostgreSQL connection string for waitlist signups. Without it, signups are kept in memory only. |
+| `DATABASE_POOL_MAX` | No | Max database connections per server instance. Defaults to `3`. |
 | `SMTP_USER` | For emails | Address the waitlist emails are sent from (e.g. your Gmail). |
 | `SMTP_PASS` | For emails | SMTP password — for Gmail, an **App Password** (spaces are fine). |
 | `WAITLIST_NOTIFY_EMAIL` | No | Also send yourself a short note for every new signup. |
 | `SMTP_HOST` | No | Defaults to `smtp.gmail.com`. |
 | `SMTP_PORT` | No | Defaults to `465` (implicit TLS). Use `587` for STARTTLS providers. |
 | `MAIL_FROM_NAME` | No | Sender display name. Defaults to `HyperDrive`. |
+
+## Database (PostgreSQL)
+
+Waitlist signups are stored in PostgreSQL (12 or newer) when `DATABASE_URL` is set. Any host works: [Neon](https://neon.tech) (one click from the Vercel Marketplace), Railway, Render, AWS RDS, or your own server.
+
+- **No setup step.** The `waitlist_entries` table is created automatically on first use. The schema is also in [`db/schema.sql`](db/schema.sql) if you prefer to run it yourself: `psql "$DATABASE_URL" -f db/schema.sql`.
+- **Duplicates are safe.** Emails are unique, so a repeat signup — even two at the same instant — returns the original queue position instead of creating a second row.
+- **Positions are gap-free.** They're computed by counting rows, not from the serial id.
+- **Outages are handled.** If the database is unreachable, the API returns `503` and the form shows a "temporarily unavailable" message.
+- **Serverless hosting.** On Vercel, use your provider's *pooled* connection string (e.g. Neon's `-pooler` host); each instance keeps at most `DATABASE_POOL_MAX` connections.
+
+**Local development:** leave `DATABASE_URL` empty to use the in-memory store, or point it at a local PostgreSQL, e.g. `postgres://postgres:yourpassword@localhost:5432/hyperdrive` (create the database first with `createdb hyperdrive`).
+
+**Viewing signups:** use any PostgreSQL client (pgAdmin, TablePlus, `psql`, or your host's dashboard):
+
+```sql
+SELECT email, providers, created_at FROM waitlist_entries ORDER BY id;
+```
 
 ## Waitlist emails (Gmail)
 
@@ -100,10 +122,10 @@ Emails are sent **after** the API responds (via Next.js `after()`), so they neve
 
 ## Waitlist API
 
-`GET /api/waitlist` → current waitlist size.
+`GET /api/waitlist` → current number of signups (straight from the database).
 
 ```json
-{ "total": 1421 }
+{ "total": 42 }
 ```
 
 `POST /api/waitlist` with `Content-Type: application/json`:
@@ -123,6 +145,7 @@ Providers must be one or more of `google-drive`, `dropbox`, `onedrive`. Emails a
 | `415` | Content type is not `application/json`. |
 | `422` | Validation failed — `fieldErrors.email` / `fieldErrors.providers` explain why. |
 | `429` | More than 5 signups from the same IP in 10 minutes (`Retry-After` header set). |
+| `503` | The database is unreachable. `GET` returns the same status. |
 
 ## Project structure
 
@@ -149,12 +172,14 @@ components/landing/
   Section.tsx, Logo.tsx      Shared layout pieces
 lib/
   waitlist.ts                Shared types + validation (client and server)
-  waitlist-store.ts          Waitlist storage (in-memory — see limitations)
+  waitlist-store.ts          Waitlist storage (PostgreSQL, or in-memory fallback)
+  db.ts                      PostgreSQL pool + automatic schema setup
   mailer.ts                  SMTP email sending
   rate-limit.ts              Per-IP rate limiter
   site.ts                    Section links + optional GitHub URL
   drive-sim/catalog.ts       Simulated files, providers, byte formatting
   drive-sim/engine.ts        Pure reducer that simulates the read path
+db/schema.sql                Reference SQL schema
 docs/                        README screenshots
 ```
 
@@ -171,14 +196,14 @@ docs/                        README screenshots
 The easiest path is **[Vercel](https://vercel.com/new)**:
 
 1. Import this repository.
-2. Add the environment variables from the table above (at least `NEXT_PUBLIC_SITE_URL`; add `SMTP_*` for emails).
+2. Add the environment variables from the table above — at least `NEXT_PUBLIC_SITE_URL` and `DATABASE_URL` (add `SMTP_*` for emails). With Neon from the Vercel Marketplace, `DATABASE_URL` is added for you.
 3. Deploy. Any other host that runs a Node.js Next.js server (`npm run build && npm start`) works too.
 
 ## Known limitations
 
-- **Signups are stored in memory.** They're lost on restart, redeploy, or serverless cold start, and aren't shared between instances. Swap the two functions in `lib/waitlist-store.ts` for a database (Postgres, Supabase, Upstash, …) before launch. Until then, `WAITLIST_NOTIFY_EMAIL` gives you an email record of every signup.
+- **Without `DATABASE_URL`, signups live in memory** and are lost on restart, redeploy, or serverless cold start. Always set it in production.
 - **Rate limiting is per instance** and trusts the `X-Forwarded-For` header from your host. Use a shared store (e.g. Redis) at scale.
-- **The counter starts at 1,420**, a fixed baseline (`WAITLIST_BASE_COUNT` in `lib/waitlist.ts`) that real signups add to.
+- **The counter shows the real number of signups**, read from the database (polled every 20 seconds). With no signups yet, it reads "Be the first to join the waitlist."
 - **Simulator figures are illustrative.** Provider capacities (100 + 50 + 25 GB) total a 175 GB pool, while the Features copy mentions 150 GB.
 
 ## Notes for contributors
