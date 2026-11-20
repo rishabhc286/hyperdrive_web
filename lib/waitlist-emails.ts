@@ -218,41 +218,168 @@ export function notificationEmail(s: SignupDetails): EmailContent {
 
 /* ── Subscriber confirmation ─────────────────────────────────────────────── */
 
+/** Public site URL for links in emails, or null when unset / pointing at localhost. */
+function publicSiteUrl(): string | null {
+  const url = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
+  if (!url || /\/\/(localhost|127\.0\.0\.1)(:|$)/.test(url)) return null;
+  return url;
+}
+
+/** Dark palette for the subscriber mailer (matches the landing page). */
+const D = {
+  page: "#0B0D12",
+  card: "#07090E",
+  panel: "#10131A",
+  line: "#1F232C",
+  ink: "#EDEDF0",
+  muted: "#969BA6",
+  subtle: "#5F6571",
+  accent: "#4ADE80",
+};
+
 export function confirmationEmail(s: SignupDetails): EmailContent {
   const position = numberFormat.format(s.position);
   const clouds = providerLabels(s.providers);
-  const subject = `You're on the HyperDrive waitlist (#${position})`;
+  const site = publicSiteUrl();
+  const subject = `You're #${position} on the HyperDrive waitlist`;
+  const preview = `Your spot is saved. ${clouds} → one H:\\ drive, coming to Windows.`;
 
   const text = [
-    "Thanks for joining the HyperDrive waitlist.",
+    `You're #${position} on the HyperDrive waitlist.`,
     "",
-    `You're #${position} in line. When the Windows alpha is ready, we'll email you an installer that mounts ${clouds} as a single H:\\ drive in File Explorer.`,
+    `Thanks for signing up. When the Windows alpha is ready, we'll send you an installer that mounts ${clouds} as a single H:\\ drive in File Explorer.`,
     "",
-    "That's the only email you'll get until then.",
+    "What happens next",
+    "1. We finish the Windows alpha.",
+    "2. You get one email with your invite and installer.",
+    "3. Sign in to your clouds. They show up as H:\\ and files stream as you open them.",
+    "",
+    ...(site ? [`See how it works: ${site}/#how-it-works`, ""] : []),
+    "That's the only email you'll get until then. Reply \"remove\" to leave the list.",
     "",
     "— HyperDrive",
   ].join("\n");
 
-  const body = `
-          <tr>
-            <td style="padding:28px 28px 28px;">
-              <p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:600;">You're on the waitlist — #${position}.</p>
-              <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:${C.muted};">
-                When the Windows alpha is ready, we'll email you an installer that mounts ${escapeHtml(clouds)} as a single
-                <code style="font-family:${MONO};color:${C.ink};">H:\\</code> drive in File Explorer.
-              </p>
-              <p style="margin:0;font-size:15px;line-height:1.6;color:${C.muted};">That's the only email you'll get until then.</p>
-            </td>
-          </tr>`;
+  const folderRows = CLOUD_PROVIDERS.filter((p) => s.providers.includes(p.id))
+    .map(
+      (p) => `
+                      <tr>
+                        <td style="padding:9px 14px;border-top:1px solid ${D.line};font-family:${FONT};font-size:14px;color:${D.ink};">
+                          <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${p.color};margin-right:10px;vertical-align:-1px;"></span>${escapeHtml(p.label)}
+                        </td>
+                        <td align="right" style="padding:9px 14px;border-top:1px solid ${D.line};font-family:${MONO};font-size:11px;color:${D.subtle};white-space:nowrap;">☁ on demand</td>
+                      </tr>`,
+    )
+    .join("");
 
-  return {
-    subject,
-    text,
-    html: layout(
-      subject,
-      `You're #${position} in line for the Windows alpha.`,
-      body,
-      "You received this because this address was entered on the HyperDrive waitlist.",
-    ),
-  };
+  const step = (n: string, title: string, body: string) => `
+                <tr>
+                  <td width="40" valign="top" style="padding:0 0 18px;font-family:${MONO};font-size:13px;color:${D.accent};">${n}</td>
+                  <td valign="top" style="padding:0 0 18px;font-family:${FONT};">
+                    <p style="margin:0;font-size:15px;font-weight:600;color:${D.ink};">${title}</p>
+                    <p style="margin:4px 0 0;font-size:14px;line-height:1.55;color:${D.muted};">${body}</p>
+                  </td>
+                </tr>`;
+
+  const cta = site
+    ? `
+          <tr>
+            <td style="padding:8px 32px 36px;">
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="border-radius:8px;background:${D.ink};">
+                    <a href="${escapeHtml(`${site}/#how-it-works`)}" style="display:inline-block;padding:12px 22px;font-family:${FONT};font-size:14px;font-weight:600;color:${D.card};text-decoration:none;border-radius:8px;">See how it works →</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>`
+    : "";
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
+  <title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background:${D.page};-webkit-text-size-adjust:100%;">
+  ${preheader(preview)}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${D.page}" style="background:${D.page};">
+    <tr>
+      <td align="center" style="padding:32px 12px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${D.card}" style="max-width:560px;background:${D.card};border:1px solid ${D.line};border-radius:16px;overflow:hidden;font-family:${FONT};color:${D.ink};">
+
+          <!-- Brand bar -->
+          <tr>
+            <td style="padding:22px 32px;border-bottom:1px solid ${D.line};">
+              <span style="font-size:15px;font-weight:600;letter-spacing:-0.01em;color:${D.ink};">HyperDrive</span>
+              <span style="font-family:${MONO};font-size:12px;color:${D.subtle};padding-left:8px;">H:\\</span>
+            </td>
+          </tr>
+
+          <!-- Hero -->
+          <tr>
+            <td bgcolor="${D.card}" style="padding:44px 32px 36px;background-color:${D.card};background-image:radial-gradient(ellipse at top left,#14324A 0%,${D.card} 65%);">
+              <p style="margin:0;font-size:12px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:${D.accent};">● Spot saved</p>
+              <p style="margin:14px 0 0;font-size:30px;line-height:1.2;font-weight:600;letter-spacing:-0.02em;color:${D.ink};">You're on the list.</p>
+              <p style="margin:24px 0 0;font-size:13px;color:${D.muted};">Your place in line</p>
+              <p style="margin:2px 0 0;font-size:64px;line-height:1;font-weight:700;letter-spacing:-0.04em;color:${D.ink};">#${position}</p>
+              <p style="margin:24px 0 0;font-size:16px;line-height:1.6;color:${D.muted};">
+                When the Windows alpha is ready, you'll get an installer that mounts ${escapeHtml(clouds)} as one
+                <span style="font-family:${MONO};color:${D.ink};">H:\\</span> drive in File Explorer. Files stream in as you open them, so nothing downloads upfront.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Drive preview -->
+          <tr>
+            <td style="padding:0 32px 36px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${D.panel}" style="background:${D.panel};border:1px solid ${D.line};border-radius:10px;border-collapse:separate;">
+                <tr>
+                  <td colspan="2" style="padding:10px 14px;font-family:${MONO};font-size:12px;color:${D.muted};">
+                    <span style="color:${D.ink};">H:\\</span>&nbsp;&nbsp;HyperDrive
+                  </td>
+                </tr>${folderRows}
+              </table>
+              <p style="margin:10px 0 0;font-size:12px;color:${D.subtle};">Your clouds, as they'll appear in File Explorer.</p>
+            </td>
+          </tr>
+
+          <!-- What happens next -->
+          <tr>
+            <td style="padding:32px 32px 14px;border-top:1px solid ${D.line};">
+              <p style="margin:0 0 20px;font-size:12px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:${D.subtle};">What happens next</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${step(
+                "01",
+                "We finish the Windows alpha",
+                "WinFsp driver, range-request streaming and the local chunk cache are in progress.",
+              )}${step("02", "You get one invite email", "With the installer and a short setup guide. No newsletters in between.")}${step(
+                "03",
+                "Your clouds become H:\\",
+                "Sign in once. Open, search and save files from any app, just like a local disk.",
+              )}
+              </table>
+            </td>
+          </tr>${cta}
+        </table>
+
+        <!-- Footer -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
+          <tr>
+            <td style="padding:20px 32px 0;font-family:${FONT};font-size:12px;line-height:1.6;color:${D.subtle};text-align:center;">
+              You're receiving this because this address joined the HyperDrive waitlist.<br>
+              Didn't sign up, or changed your mind? Reply "remove" and we'll take you off the list.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return { subject, text, html };
 }
