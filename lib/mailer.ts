@@ -1,13 +1,15 @@
 import nodemailer, { type Transporter } from "nodemailer";
-import { CLOUD_PROVIDERS, type CloudProviderId } from "@/lib/waitlist";
+import { confirmationEmail, notificationEmail, type SignupDetails } from "@/lib/waitlist-emails";
 
 /**
  * Waitlist email delivery over SMTP (Gmail by default), configured entirely
  * through environment variables — see `.env.example`. Server-only.
+ * Email content lives in `lib/waitlist-emails.ts`.
  *
  * Required:  SMTP_USER, SMTP_PASS (a Google App Password for Gmail)
  * Optional:  SMTP_HOST (smtp.gmail.com), SMTP_PORT (465), MAIL_FROM_NAME (HyperDrive),
- *            WAITLIST_NOTIFY_EMAIL (also send yourself a note for every signup)
+ *            WAITLIST_NOTIFY_EMAIL (also send yourself a note for every signup),
+ *            MAIL_TIMEZONE (UTC; time zone for the "Joined" time in that note)
  */
 
 interface MailConfig {
@@ -58,11 +60,7 @@ export function isMailConfigured(): boolean {
   return readConfig() !== null;
 }
 
-export interface WaitlistEmailInput {
-  email: string;
-  providers: CloudProviderId[];
-  position: number;
-}
+export type WaitlistEmailInput = SignupDetails;
 
 /**
  * Sends the signup confirmation (and optional owner notification).
@@ -80,29 +78,11 @@ export async function sendWaitlistEmails(entry: WaitlistEmailInput): Promise<voi
 
   const transporter = getTransporter(config);
   const from = { name: config.fromName, address: config.user };
-  const providers = providerLabels(entry.providers);
-  const position = new Intl.NumberFormat("en-US").format(entry.position);
 
-  const jobs: Promise<unknown>[] = [
-    transporter.sendMail({
-      from,
-      to: entry.email,
-      subject: `You're on the HyperDrive waitlist (#${position})`,
-      text: confirmationText(position, providers),
-      html: confirmationHtml(position, providers),
-    }),
-  ];
+  const jobs: Promise<unknown>[] = [transporter.sendMail({ from, to: entry.email, ...confirmationEmail(entry) })];
 
   if (config.notifyTo) {
-    jobs.push(
-      transporter.sendMail({
-        from,
-        to: config.notifyTo,
-        replyTo: entry.email,
-        subject: `New waitlist signup #${position}: ${entry.email}`,
-        text: `${entry.email} joined the HyperDrive waitlist.\n\nPosition: #${position}\nClouds: ${providers}\n`,
-      }),
-    );
+    jobs.push(transporter.sendMail({ from, to: config.notifyTo, replyTo: entry.email, ...notificationEmail(entry) }));
   }
 
   const results = await Promise.allSettled(jobs);
@@ -111,47 +91,4 @@ export async function sendWaitlistEmails(entry: WaitlistEmailInput): Promise<voi
       console.error("[waitlist] Failed to send email:", result.reason instanceof Error ? result.reason.message : result.reason);
     }
   }
-}
-
-/* ── Content ─────────────────────────────────────────────────────────────── */
-
-function providerLabels(ids: CloudProviderId[]): string {
-  const labels = CLOUD_PROVIDERS.filter((p) => ids.includes(p.id)).map((p) => p.label);
-  if (labels.length <= 1) return labels.join("");
-  return `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
-}
-
-function confirmationText(position: string, providers: string): string {
-  return [
-    "Thanks for joining the HyperDrive waitlist.",
-    "",
-    `You're #${position} in line. When the Windows alpha is ready, we'll email you an installer that mounts ${providers} as a single H:\\ drive in File Explorer.`,
-    "",
-    "That's the only email you'll get until then.",
-    "",
-    "— HyperDrive",
-  ].join("\n");
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-
-function confirmationHtml(position: string, providers: string): string {
-  const p = escapeHtml(providers);
-  return `<!doctype html>
-<html>
-  <body style="margin:0;padding:32px 16px;background:#ffffff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111318;">
-    <div style="max-width:480px;margin:0 auto;">
-      <p style="margin:0 0 24px;font-size:15px;font-weight:600;">HyperDrive</p>
-      <p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:500;">You're on the waitlist — #${position}.</p>
-      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#4a4f5a;">
-        When the Windows alpha is ready, we'll email you an installer that mounts ${p} as a single
-        <code style="font-family:Consolas,monospace;color:#111318;">H:\\</code> drive in File Explorer.
-      </p>
-      <p style="margin:0;font-size:15px;line-height:1.6;color:#4a4f5a;">That's the only email you'll get until then.</p>
-      <p style="margin:32px 0 0;font-size:13px;color:#8a8f99;">You received this because this address was entered on the HyperDrive waitlist.</p>
-    </div>
-  </body>
-</html>`;
 }

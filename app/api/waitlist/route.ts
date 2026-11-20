@@ -123,7 +123,13 @@ export async function POST(request: Request) {
   // never slows the form down.
   if (!entry.alreadyJoined) {
     after(() =>
-      sendWaitlistEmails({ email: entry.email, providers: entry.providers, position: entry.position }),
+      sendWaitlistEmails({
+        email: entry.email,
+        providers: entry.providers,
+        position: entry.position,
+        joinedAt: entry.joinedAt,
+        total,
+      }),
     );
   }
 
